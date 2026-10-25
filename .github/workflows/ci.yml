@@ -1,0 +1,118 @@
+name: Public infrastructure smoke PoC
+
+'on':
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    services:
+      postgres:
+        # Official postgres:17-bookworm image, pinned to its immutable index digest.
+        image: postgres@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+        env:
+          POSTGRES_DB: smoke
+          POSTGRES_USER: postgres
+          # Public fixture credential, never reused outside this disposable container.
+          POSTGRES_PASSWORD: disposable-public-fixture
+        options: >-
+          --health-cmd "pg_isready -U postgres -d smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out public fixture
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Record tool versions
+        run: |
+          mkdir -p artifacts
+          { go version; node --version; npm --version; google-chrome --version; } | tee artifacts/tool-versions.txt
+      - name: Go unit tests, race detector, vet, and build
+        timeout-minutes: 5
+        run: |
+          test -z "$(gofmt -l main.go main_test.go cmd/verify-fixture/*.go)"
+          go test -race -count=1 -v ./... | tee artifacts/go-tests.txt
+          go vet ./...
+          go build -trimpath -o demo .
+          mkdir -p .tools
+          go build -trimpath -o .tools/verify-fixture ./cmd/verify-fixture
+      - name: Install locked browser client without install scripts
+        timeout-minutes: 3
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: PostgreSQL transaction assertions
+        timeout-minutes: 2
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "$POSTGRES_CONTAINER" psql --version | tee artifacts/postgres-version.txt
+          docker exec -i "$POSTGRES_CONTAINER" psql -X -U postgres -d smoke -v ON_ERROR_STOP=1 < scripts/postgres-smoke.sql | tee artifacts/postgres-result.txt
+      - name: Start local app, verify readiness, and run real Chrome checks
+        timeout-minutes: 3
+        run: |
+          ./demo > artifacts/app.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            kill -0 "$app_pid"
+            if curl --fail --silent --max-time 2 http://127.0.0.1:8080/healthz > artifacts/health.json; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          node -e "const assert=require('node:assert/strict'); const fs=require('node:fs'); assert.deepEqual(JSON.parse(fs.readFileSync('artifacts/health.json')), {status:'ok'});"
+          npm run smoke:browser
+      - name: Download and verify fixed Delivery release assets
+        timeout-minutes: 5
+        run: bash scripts/download-delivery.sh
+      - name: Real PostgreSQL adapter integration binary
+        timeout-minutes: 3
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker cp .tools/delivery-postgres-tests-linux-amd64 "$POSTGRES_CONTAINER:/tmp/delivery-postgres-tests"
+          docker exec "$POSTGRES_CONTAINER" chmod 0755 /tmp/delivery-postgres-tests
+          docker exec --user postgres \
+            -e DELIVERY_TEST_POSTGRES_SOCKET_DIR=/var/run/postgresql \
+            "$POSTGRES_CONTAINER" /tmp/delivery-postgres-tests \
+            -test.run '^TestPostgresIntegration$' -test.v -test.timeout=90s \
+            | tee artifacts/delivery-postgres-tests.txt
+          grep -Eq '^--- PASS: TestPostgresIntegration( |$)' artifacts/delivery-postgres-tests.txt
+          if grep -Eq -- '--- SKIP:|^SKIP' artifacts/delivery-postgres-tests.txt; then
+            echo "An integration test was skipped; this is not acceptance evidence." >&2
+            exit 1
+          fi
+      - name: Real Delivery binary acceptance and negative controls
+        timeout-minutes: 3
+        run: python3 scripts/delivery-smoke.py
+      - name: Upload public fixture evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: public-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 3
+          include-hidden-files: false

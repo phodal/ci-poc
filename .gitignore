@@ -1,0 +1,6 @@
+/artifacts/
+/node_modules/
+/demo
+/.tools/
+__pycache__/
+*.pyc
