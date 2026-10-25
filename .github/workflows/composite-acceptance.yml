@@ -1,0 +1,116 @@
+name: Controlled composite acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      promotion_pr:
+        description: Approved promotion fixture PR number
+        required: true
+        type: number
+      express_pr:
+        description: Approved express fixture PR number
+        required: true
+        type: number
+
+# This workflow never writes checks/statuses or grants merge permission. The
+# eventual delivery/acceptance check needs a separately trusted publishing App.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: controlled-composite-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    name: acceptance-orchestration
+    if: github.repository == 'phodal/ci-poc' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out only the trusted default-branch workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up fixed compiler for transient candidate
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Resolve and build approved ordered PR composition locally
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/compose-candidate.py --promotion-pr '${{ inputs.promotion_pr }}' --express-pr '${{ inputs.express_pr }}' --trusted-sha '${{ github.sha }}' --output "$RUNNER_TEMP/resolved"
+      - name: Preserve reproducible public composite source identity
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: controlled-composite-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/resolved/candidate.json
+            ${{ runner.temp }}/resolved/candidate.bundle
+          if-no-files-found: error
+          retention-days: 7
+      - name: Download explicitly pinned private-source binaries
+        run: python3 -I scripts/download-acceptance.py
+      - name: Install trusted locked browser client without scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Prepare plan and fixed environment recipe
+        run: |
+          docker pull postgres@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+          db_image=$(docker image inspect --format '{{.Id}}' postgres@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27)
+          python3 -I scripts/prepare-acceptance.py --candidate-dir "$RUNNER_TEMP/resolved" --tools-dir "$RUNNER_TEMP/trusted-acceptance-tools" --work-dir "$RUNNER_TEMP/acceptance" --database-image "$db_image"
+      - name: Run Web API and DB acceptance through environments
+        id: verify
+        run: >-
+          "$RUNNER_TEMP/trusted-acceptance-tools/delivery-acceptance-linux-amd64"
+          --config "$RUNNER_TEMP/acceptance/recipe.json"
+          --plan "$RUNNER_TEMP/acceptance/plan.json"
+          --output-dir "$RUNNER_TEMP/acceptance/output"
+      - name: Collect only required evidence and bound gate inputs
+        if: always() && steps.verify.outcome != 'skipped'
+        id: collect
+        run: python3 -I scripts/collect-evidence.py --work-dir "$RUNNER_TEMP/acceptance" --tools-dir "$RUNNER_TEMP/trusted-acceptance-tools"
+      - name: Commit evidence artifact
+        if: always() && steps.collect.outcome == 'success'
+        id: evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: acceptance-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/acceptance/gate-input/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Read back and verify every committed evidence byte
+        if: always() && steps.evidence.outcome == 'success'
+        id: readback
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+        run: >-
+          python3 -I scripts/verify-evidence-upload.py
+          --artifact-id '${{ steps.evidence.outputs.artifact-id }}'
+          --expected-digest '${{ steps.evidence.outputs.artifact-digest }}'
+          --directory "$RUNNER_TEMP/acceptance/gate-input"
+          > "$RUNNER_TEMP/acceptance/remote-evidence.json"
+      - name: Resolve candidate again after evidence upload
+        if: always() && steps.readback.outcome == 'success'
+        id: current
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/compose-candidate.py --promotion-pr '${{ inputs.promotion_pr }}' --express-pr '${{ inputs.express_pr }}' --trusted-sha '${{ github.sha }}' --current-only "$RUNNER_TEMP/resolved/candidate.json" --output "$RUNNER_TEMP/current"
+      - name: Evaluate current candidate and produce advisory Agent feedback
+        if: always() && steps.current.outcome == 'success'
+        run: python3 -I scripts/evaluate-acceptance.py --work-dir "$RUNNER_TEMP/acceptance" --tools-dir "$RUNNER_TEMP/trusted-acceptance-tools" --current-candidate "$RUNNER_TEMP/current/candidate.json"
+      - name: Preserve bounded outcome and failure feedback
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: acceptance-outcome-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/resolved/feedback.json
+            ${{ runner.temp }}/current/feedback.json
+            ${{ runner.temp }}/acceptance/decision.json
+            ${{ runner.temp }}/acceptance/feedback.json
+            ${{ runner.temp }}/acceptance/remote-evidence.json
+          if-no-files-found: warn
+          retention-days: 7

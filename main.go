@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -26,7 +27,12 @@ fetch('/version').then(r => { if (!r.ok) throw new Error('Version request failed
 </script></body></html>`
 
 func handler() http.Handler {
+	return handlerWithOrders(nil)
+}
+
+func handlerWithOrders(store orderStore) http.Handler {
 	mux := http.NewServeMux()
+	orderRoutes(mux, store)
 	mux.HandleFunc("GET /artifact", func(w http.ResponseWriter, r *http.Request) {
 		digest, err := executableSHA256()
 		if err != nil {
@@ -50,6 +56,10 @@ func handler() http.Handler {
 	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if store != nil {
+			_, _ = w.Write([]byte(shopPage))
+			return
+		}
 		_, _ = w.Write([]byte(page))
 	})
 	return mux
@@ -74,7 +84,21 @@ func executableSHA256() (string, error) {
 }
 
 func main() {
-	server := &http.Server{Addr: "127.0.0.1:8080", Handler: handler(), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
-	log.Println("demo listening on 127.0.0.1:8080")
+	var store orderStore
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		db, err := sql.Open("postgres", dsn)
+		if err != nil {
+			log.Fatal("database configuration failed")
+		}
+		defer db.Close()
+		db.SetMaxOpenConns(4)
+		store = postgresOrders{db}
+	}
+	addr := os.Getenv("LISTEN_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1:8080"
+	}
+	server := &http.Server{Addr: addr, Handler: handlerWithOrders(store), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
+	log.Println("demo listening on", addr)
 	log.Fatal(server.ListenAndServe())
 }

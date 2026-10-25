@@ -50,7 +50,7 @@ jobs:
       - name: Go unit tests, race detector, vet, and build
         timeout-minutes: 5
         run: |
-          test -z "$(gofmt -l main.go main_test.go cmd/verify-fixture/*.go)"
+          test -z "$(gofmt -l ./*.go cmd/verify-fixture/*.go)"
           go test -race -count=1 -v ./... | tee artifacts/go-tests.txt
           go vet ./...
           go build -trimpath -o demo .

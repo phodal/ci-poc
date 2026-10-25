@@ -1,0 +1,62 @@
+name: PR candidate build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-candidate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CGO_ENABLED: '0'
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Capture actual checkout before building
+        run: python3 -I scripts/capture-candidate.py
+      - name: Compile without running candidate programs or tests
+        run: go build -trimpath -o "$RUNNER_TEMP/candidate-output/demo" .
+      - name: Package candidate without executing it
+        run: |
+          cp candidate.Dockerfile "$RUNNER_TEMP/candidate-output/Dockerfile"
+          docker build --tag local/candidate:${{ github.run_id }}-${{ github.run_attempt }} "$RUNNER_TEMP/candidate-output"
+          rm "$RUNNER_TEMP/candidate-output/Dockerfile"
+          docker save local/candidate:${{ github.run_id }}-${{ github.run_attempt }} --output "$RUNNER_TEMP/candidate-output/image.tar"
+      - name: Upload candidate bytes and checkout claim
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate-output/
+          if-no-files-found: error
+          retention-days: 3
+  tests:
+    # Candidate tests execute only in a different unprivileged hosted runner.
+    # They cannot alter the build job's capture or artifact.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - run: go test -race -count=1 ./...

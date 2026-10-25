@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "order-once-policy-v1",
+  "buildProducer": "github-actions-fixture-v1",
+  "requiredEvidence": [
+    {"name": "web-evidence.json", "mediaType": "application/json", "maxBytes": 1048576},
+    {"name": "sql-readback.json", "mediaType": "application/json", "maxBytes": 1048576},
+    {"name": "environment-receipt.json", "mediaType": "application/json", "maxBytes": 1048576},
+    {"name": "final.png", "mediaType": "image/png", "maxBytes": 8388608},
+    {"name": "trace.zip", "mediaType": "application/zip", "maxBytes": 33554432}
+  ]
+}

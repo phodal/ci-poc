@@ -2,6 +2,12 @@
 
 An independently authored, public-safe fixture for evaluating an ephemeral GitHub-hosted CI workflow. It contains no application source imported from another project.
 
+The new bounded PR acceptance route is documented in [PR_ACCEPTANCE.md](PR_ACCEPTANCE.md).
+It separates candidate builds from trusted default-branch acceptance, restricts
+execution to approved synthetic fixture changes, manages runtime resources through
+environments, and produces advisory evidence/Agent feedback. It does not enforce
+SCM merge rules. Its Release pins must be enabled before a real run can pass.
+
 ## Execution evidence
 
 [Hosted baseline run 40191050924](https://github.com/phodal/ci-poc/actions/runs/40191050924) passed with release `delivery-poc-20261025-cab97a1`, including real Chrome, PostgreSQL adapter integration, and the three Delivery CLI cases. That result applies to the baseline binary only.
@@ -12,7 +18,7 @@ The current pins select `delivery-poc-20261025-8e08380`. A completed Actions run
 
 One Ubuntu 24.04 hosted job, triggered by a push to `master` or a manual run:
 
-1. Formats, unit-tests, race-tests, vets, and builds a standard-library-only Go HTTP demo.
+1. Formats, unit-tests, race-tests, vets, and builds the Go HTTP demo (now also supporting the optional PostgreSQL-backed order fixture).
 2. Starts that demo on loopback and polls a real health endpoint with a bounded timeout.
 3. Uses a real, preinstalled Google Chrome browser through locked Playwright Core to load the page, fetch the version, click a counter twice, and fetch health. Browser script errors fail the check.
 4. Runs SQL against a real disposable PostgreSQL container, asserting committed data persists and rolled-back data does not.
@@ -58,7 +64,7 @@ The earlier SQL commit/rollback fixture remains a separate infrastructure smoke 
 
 - All external Actions use immutable commit SHAs; PostgreSQL uses an immutable image digest. npm uses a committed integrity lockfile with lifecycle scripts disabled.
 - The only token permission is `contents: read`; checkout does not persist credentials. No repository secrets, cloud credentials, new secret stores, token writes, remote deployment, or self-hosted runners are needed.
-- There is no pull-request trigger and no `pull_request_target` workflow. Only trusted default-branch pushes/manual execution run this initial PoC.
+- The original infrastructure smoke workflow has no pull-request trigger. The separate PR acceptance workflows described above add unprivileged candidate builds and trusted, fixture-only acceptance. There is no `pull_request_target` workflow.
 - PostgreSQL has no host port published. Its public fixture password is not a secret and must never be reused elsewhere. SQL runs inside its disposable container.
 - The app binds to `127.0.0.1` only. The browser test refuses to run outside GitHub-hosted Actions, only visits the loopback fixture, and blocks requests to other origins.
 - Chrome's sandbox is explicitly enabled. No `--no-sandbox`, web-security bypass, or host security setting change is used. If runner restrictions prevent sandboxed Chrome startup, the job must fail rather than silently disable security.
