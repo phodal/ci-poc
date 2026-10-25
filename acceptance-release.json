@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "enabled": true,
-  "tag": "delivery-gate-20261025-d7618ef",
-  "sourceRevision": "54129350e613d3b5cc863545499cdac2c1452176",
+  "tag": "delivery-gate-20261025-6781a0f",
+  "sourceRevision": "6781a0ff5f2fa556105e6f084db65192e478f3a6",
   "assets": {
     "delivery-gate-linux-amd64": "df712acfb33c726ba24ac32a64ef6aa393be145f9a421e436bc160ef373ef20e",
-    "delivery-acceptance-linux-amd64": "463ed2dd0a327d2f59ec205f9f89cc121c9e4755bdfbcc79180074ee9194d559"
+    "delivery-acceptance-linux-amd64": "1ada52637625a02292bbfae6fcad99001ec90ab9aec5a64d9d14bb130353e434"
   }
 }
