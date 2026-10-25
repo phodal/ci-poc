@@ -2,6 +2,12 @@
 
 An independently authored, public-safe fixture for evaluating an ephemeral GitHub-hosted CI workflow. It contains no application source imported from another project.
 
+## Execution evidence
+
+[Hosted baseline run 40191050924](https://github.com/phodal/ci-poc/actions/runs/40191050924) passed with release `delivery-poc-20261025-cab97a1`, including real Chrome, PostgreSQL adapter integration, and the three Delivery CLI cases. That result applies to the baseline binary only.
+
+The current pins select `delivery-poc-20261025-8e08380`. A completed Actions run must show these exact hashes; the previous green run does not validate a replacement binary.
+
 ## What the workflow checks
 
 One Ubuntu 24.04 hosted job, triggered by a push to `master` or a manual run:
@@ -18,8 +24,8 @@ The SQL test is an infrastructure check, not an application/database integration
 
 A separate workflow step downloads only fixed assets from the public release:
 
-- [delivery-poc-20261025-cab97a1 / delivery-linux-amd64](https://github.com/phodal/ci-poc/releases/download/delivery-poc-20261025-cab97a1/delivery-linux-amd64)
-- Expected SHA-256: `5ce0faf1428a0cca6e4a76d10f30ebdcfe892c10b82f5d60c3d1286c773a03cd`
+- [delivery-poc-20261025-8e08380 / delivery-linux-amd64](https://github.com/phodal/ci-poc/releases/download/delivery-poc-20261025-8e08380/delivery-linux-amd64)
+- Expected SHA-256: `83044cfebcafa6ea47775ab31893052f4bb9ff5d090a48b52253edef398e8135`
 
 The checksum is checked before execution; neither `latest` nor user-supplied download URLs are accepted. The source for this release binary is not included here.
 
@@ -39,8 +45,8 @@ These checks exercise the published binary's local execution boundary and receip
 
 The same fixed release supplies a separately compiled functional integration-test binary, without publishing its private source:
 
-- [delivery-postgres-tests-linux-amd64](https://github.com/phodal/ci-poc/releases/download/delivery-poc-20261025-cab97a1/delivery-postgres-tests-linux-amd64)
-- Expected SHA-256: `4db6068c6f6d4f7b3a52399b5fe88fddc08532b11f89343e14cf45a2346d4a94`
+- [delivery-postgres-tests-linux-amd64](https://github.com/phodal/ci-poc/releases/download/delivery-poc-20261025-8e08380/delivery-postgres-tests-linux-amd64)
+- Expected SHA-256: `3c80d20820bab5435109b90c8ce0978353f7a2025c43b2c714b18a1b0a4ad424`
 
 After checksum verification, the workflow copies it into the existing disposable PostgreSQL container and runs only `TestPostgresIntegration`, as OS user `postgres`, through the container's local Unix socket. It does not connect to an external database, expose a port, or introduce additional credentials or containers. The binary is bounded by a 90-second test timeout and a three-minute step timeout.
 

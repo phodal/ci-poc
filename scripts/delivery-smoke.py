@@ -12,7 +12,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / '.tools'
 ARTIFACTS = ROOT / 'artifacts'
-EXPECTED_BINARY = '5ce0faf1428a0cca6e4a76d10f30ebdcfe892c10b82f5d60c3d1286c773a03cd'
+EXPECTED_BINARY = '83044cfebcafa6ea47775ab31893052f4bb9ff5d090a48b52253edef398e8135'
 TOKEN = 'public-disposable-poc-token'
 CHILD_ENV = {'PATH': '/usr/bin:/bin'}
 
